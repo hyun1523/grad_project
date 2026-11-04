@@ -1,44 +1,84 @@
 # 📚 AI Study Partner (PDF 기반 AI 학습 보조 시스템)
 
-> 대용량 PDF 문서 및 학술 논문을 위한 **Google Gemini 2.5 Flash LLM** 기반 자동 요약, Q&A, 퀴즈 및 플래시카드 생성 웹 서비스입니다.
+> PDF 문서(전공 서적, 강의자료, 논문)를 올리면 **요약 · 근거 페이지가 표시되는 Q&A · 채점되는 퀴즈 · 오답 노트 · 학습 통계**까지 제공하는 개인 맞춤형 AI 학습 웹 서비스입니다.
+> LLM은 Google Gemini 2.5 Flash를 사용합니다.
 
 ---
 
 ## 🌟 주요 기능
 
-- **한글 파싱 특화**: `pdfplumber` 라이브러리를 적용하여 한글 글자 깨짐 현상 차단
-- **스마트 핵심 요약**: 문서 전체 맥락을 파악해 3~5가지 핵심 항목으로 요약 및 TXT 다운로드 제공
-- **연속 대화 AI 튜터**: 대화 세션 맥락을 기억하는 맞춤형 Q&A 챗봇
-- **자동 퀴즈 & 해설**: 학습 확인을 위한 객관식/주관식 테스트 문제 자동 출제
-- **핵심 용어 단어장**: 전공 용어 및 핵심 개념 플래시카드 자동 추출
+| 기능 | 설명 |
+|---|---|
+| 회원가입 / 로그인 | 사용자별 문서와 학습 기록을 분리해 저장 (비밀번호는 salt + PBKDF2 해시) |
+| 문서 관리 | PDF를 페이지 단위로 저장해 다시 로그인해도 이어서 학습 |
+| 핵심 요약 | 문서를 구간별로 요약한 뒤 합치는 방식(Map-Reduce)으로 **긴 문서도 끝까지** 반영 |
+| AI 튜터 Q&A | 질문과 관련된 부분만 검색(BM25)해 근거로 답변, **참고한 페이지(p.N) 표시**, 대화 저장 |
+| AI 퀴즈 | 4지선다를 직접 풀고 자동 채점, 해설과 근거 페이지 제공 |
+| 오답 노트 | 최근에 틀린 문제를 모아 다시 풀기, **약한 주제 중심 복습 퀴즈** 자동 생성 |
+| 플래시카드 | 문서의 핵심 용어와 정의를 카드로 정리 |
+| 학습 통계 | 날짜별 학습량, 주제별 정답률, 복습이 필요한 주제 표시 |
+
+---
+
+## 🏗️ 구조
+
+```
+grad_project/
+├── app.py            # 진입점: 로그인 확인, 사이드바, 메뉴 전환
+├── core/             # 화면과 무관한 핵심 로직 (테스트 가능)
+│   ├── db.py         # SQLite 스키마와 쿼리
+│   ├── auth.py       # 회원가입 / 로그인
+│   ├── pdf.py        # PDF 페이지별 텍스트 추출 (pdfplumber)
+│   ├── rag.py        # 문서 분할 + BM25 검색 (한글 2-gram)
+│   ├── llm.py        # Gemini 호출, 재시도, JSON 파싱
+│   └── study.py      # 요약 / Q&A / 퀴즈 / 플래시카드 프롬프트와 검증
+├── views/            # Streamlit 화면 (메뉴별 1파일)
+└── tests/            # 가짜 LLM을 쓰는 단위 테스트
+```
+
+### 설계 포인트
+- **긴 문서 처리**: 예전에는 앞부분 1만 자만 AI에 보냈지만, 지금은 요약은 구간별 Map-Reduce, Q&A는 관련 구간 검색(RAG)으로 문서 전체를 활용합니다.
+- **한글 검색**: 형태소 분석기 없이도 동작하도록 한글은 글자 2-gram, 영어는 단어 단위로 BM25 검색을 직접 구현했습니다.
+- **퀴즈 품질 관리**: AI가 만든 문제의 보기 개수, 중복, 정답 범위를 검증하고, 정답이 특정 번호에 몰리지 않도록 보기를 섞습니다.
+- **안정성**: 사용량 한도(429)와 일시 오류(503)는 자동 재시도하고, 사용자에게는 이해하기 쉬운 오류 메시지를 보여줍니다.
+- **보안**: 비밀번호 해시 저장, 다른 사용자의 문서 접근 차단, `.env`와 사용자 데이터는 git에서 제외합니다.
 
 ---
 
 ## 🛠️ Tech Stack
 
-- **Language**: Python 3.14
-- **UI Framework**: Streamlit
-- **AI Model**: Google Gemini 2.5 Flash (`google-genai` SDK)
-- **PDF Parser**: `pdfplumber`
-- **Environment**: `python-dotenv`
+- Python 3, Streamlit
+- Google Gemini 2.5 Flash (`google-genai`)
+- pdfplumber, SQLite(표준 라이브러리), pandas, python-dotenv
 
 ---
 
 ## 🚀 실행 방법
 
-### 1. 레포지토리 클론 및 이동
 ```bash
+# 1. 저장소 받기
 git clone https://github.com/hyun1523/grad_project.git
 cd grad_project
 
-### 2. 필수 라이브러리 설치
-```bash
-pip install streamlit google-genai pdfplumber python-dotenv
+# 2. 라이브러리 설치
+pip install -r requirements.txt
 
-### 3. 환경변수 .env 설정
-```bash
-GEMINI_API_KEY=your_gemini_api_key_here
+# 3. 환경변수 설정: 프로젝트 폴더에 .env 파일을 만들고 아래 한 줄을 넣기
+# GEMINI_API_KEY=your_gemini_api_key_here
 
-### 4. 앱 실행
-```bash
+# 4. 앱 실행
 python -m streamlit run app.py
+```
+
+## ✅ 테스트
+
+```bash
+python -m pytest -q
+```
+
+실제 API 없이 DB, 로그인, 검색, 퀴즈 채점/오답 노트/통계 로직을 검증합니다.
+
+## ⚠️ 한계
+
+- 이미지로만 된 스캔본 PDF는 텍스트를 추출할 수 없어 지원하지 않습니다.
+- Gemini 무료 요금제는 분당 호출 제한이 있어, 긴 문서 요약은 시간이 걸릴 수 있습니다.
